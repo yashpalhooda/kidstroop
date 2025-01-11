@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Puzzle Game</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .puzzle-outer {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .puzzle-container {
+            width: 100%;
+            padding-bottom: 100%; /* Makes it square */
+            position: relative;
+            margin: 20px auto;
+            border: 2px solid #333;
+            overflow: hidden;
+        }
+        .puzzle-inner {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+        .puzzle-piece {
+            width: 33.333%;
+            height: 33.333%;
+            position: absolute;
+            transition: all 0.3s ease;
+            border: 1px solid #fff;
+            background-size: 300% 300%;
+            touch-action: none;
+        }
+        .empty {
+            background: #eee !important;
+        }
+        .win-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .win-message {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            text-align: center;
+            animation: pop-in 0.5s ease-out;
+        }
+        @keyframes pop-in {
+            0% { transform: scale(0); }
+            70% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        @media (max-width: 576px) {
+            .puzzle-outer {
+                max-width: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-12 col-md-8 text-center">
+                <h2 class="mb-4">Image Puzzle Game</h2>
+                <div class="mb-3">
+                    <label for="imageInput" class="form-label">Upload Image (JPG/PNG)</label>
+                    <input class="form-control" type="file" id="imageInput" accept=".jpg,.jpeg,.png">
+                </div>
+                <button class="btn btn-primary mb-3" onclick="shufflePuzzle()">Shuffle</button>
+                <div class="puzzle-outer">
+                    <div class="puzzle-container">
+                        <div class="puzzle-inner" id="puzzleContainer"></div>
+                    </div>
+                </div>
+                <div class="mt-3" id="moveCount">Moves: 0</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="win-overlay" id="winOverlay">
+        <div class="win-message">
+            <h3>🎉 Congratulations! 🎉</h3>
+            <p>You solved the puzzle in <span id="finalMoves">0</span> moves!</p>
+            <button class="btn btn-success mt-3" onclick="hideWinMessage()">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        let pieces = [];
+        let emptyPos = { x: 2, y: 2 };
+        let moveCount = 0;
+        let startX, startY, moveX, moveY;
+        let currentImage = null;
+        let isMoving = false;
+        let originalPositions = [];
+
+        function createPuzzle() {
+            const container = document.getElementById('puzzleContainer');
+            container.innerHTML = '';
+            pieces = [];
+            originalPositions = [];
+            moveCount = 0;
+            updateMoveCount();
+
+            for (let y = 0; y < 3; y++) {
+                for (let x = 0; x < 3; x++) {
+                    if (x === 2 && y === 2) continue;
+                    const piece = document.createElement('div');
+                    piece.className = 'puzzle-piece';
+                    piece.style.left = (x * 33.333) + '%';
+                    piece.style.top = (y * 33.333) + '%';
+                    if (currentImage) {
+                        piece.style.backgroundImage = `url(${currentImage})`;
+                        piece.style.backgroundPosition = `-${x * 100}% -${y * 100}%`;
+                    }
+                    piece.dataset.x = x;
+                    piece.dataset.y = y;
+                    piece.dataset.originalX = x;
+                    piece.dataset.originalY = y;
+                    container.appendChild(piece);
+                    pieces.push(piece);
+                    originalPositions.push({x, y});
+
+                    // Mouse events
+                    piece.addEventListener('mousedown', startMove);
+                    piece.addEventListener('mousemove', move);
+                    piece.addEventListener('mouseup', endMove);
+                    piece.addEventListener('mouseleave', endMove);
+
+                    // Touch events
+                    piece.addEventListener('touchstart', startMove);
+                    piece.addEventListener('touchmove', move);
+                    piece.addEventListener('touchend', endMove);
+                }
+            }
+        }
+
+        function startMove(e) {
+            if (isMoving) return;
+            const touch = e.type === 'touchstart' ? e.touches[0] : e;
+            startX = touch.clientX;
+            startY = touch.clientY;
+            moveX = 0;
+            moveY = 0;
+            isMoving = true;
+            e.preventDefault();
+        }
+
+        function move(e) {
+            if (!isMoving) return;
+            const touch = e.type === 'touchmove' ? e.touches[0] : e;
+            moveX = touch.clientX - startX;
+            moveY = touch.clientY - startY;
+            e.preventDefault();
+        }
+
+        function endMove(e) {
+            if (!isMoving) return;
+            isMoving = false;
+            const piece = e.target;
+            const x = parseInt(piece.dataset.x);
+            const y = parseInt(piece.dataset.y);
+
+            const threshold = 30;
+            let direction = '';
+            if (Math.abs(moveX) > Math.abs(moveY)) {
+                if (Math.abs(moveX) > threshold) {
+                    direction = moveX > 0 ? 'right' : 'left';
+                }
+            } else {
+                if (Math.abs(moveY) > threshold) {
+                    direction = moveY > 0 ? 'down' : 'up';
+                }
+            }
+
+            if (direction && isAdjacent(x, y, direction)) {
+                movePiece(piece, direction);
+                checkWin();
+            }
+
+            moveX = 0;
+            moveY = 0;
+            e.preventDefault();
+        }
+
+        function isAdjacent(x, y, direction) {
+            switch (direction) {
+                case 'up': return x === emptyPos.x && y === emptyPos.y + 1;
+                case 'down': return x === emptyPos.x && y === emptyPos.y - 1;
+                case 'left': return y === emptyPos.y && x === emptyPos.x + 1;
+                case 'right': return y === emptyPos.y && x === emptyPos.x - 1;
+                default: return false;
+            }
+        }
+
+        function movePiece(piece, direction) {
+            const oldX = parseInt(piece.dataset.x);
+            const oldY = parseInt(piece.dataset.y);
+            
+            piece.style.left = (emptyPos.x * 33.333) + '%';
+            piece.style.top = (emptyPos.y * 33.333) + '%';
+            piece.dataset.x = emptyPos.x;
+            piece.dataset.y = emptyPos.y;
+            
+            emptyPos.x = oldX;
+            emptyPos.y = oldY;
+            
+            moveCount++;
+            updateMoveCount();
+        }
+
+        function checkWin() {
+            const isWin = pieces.every(piece => {
+                const currentX = parseInt(piece.dataset.x);
+                const currentY = parseInt(piece.dataset.y);
+                const originalX = parseInt(piece.dataset.originalX);
+                const originalY = parseInt(piece.dataset.originalY);
+                return currentX === originalX && currentY === originalY;
+            });
+
+            if (isWin) {
+                document.getElementById('finalMoves').textContent = moveCount;
+                document.getElementById('winOverlay').style.display = 'flex';
+            }
+        }
+
+        function hideWinMessage() {
+            document.getElementById('winOverlay').style.display = 'none';
+            shufflePuzzle();
+        }
+
+        function updateMoveCount() {
+            document.getElementById('moveCount').textContent = `Moves: ${moveCount}`;
+        }
+
+        function shufflePuzzle() {
+            for (let i = 0; i < 100; i++) {
+                const validMoves = [];
+                if (emptyPos.x > 0) validMoves.push('left');
+                if (emptyPos.x < 2) validMoves.push('right');
+                if (emptyPos.y > 0) validMoves.push('up');
+                if (emptyPos.y < 2) validMoves.push('down');
+
+                const direction = validMoves[Math.floor(Math.random() * validMoves.length)];
+                const piece = pieces.find(p => 
+                    parseInt(p.dataset.x) === emptyPos.x + (direction === 'left' ? -1 : direction === 'right' ? 1 : 0) &&
+                    parseInt(p.dataset.y) === emptyPos.y + (direction === 'up' ? -1 : direction === 'down' ? 1 : 0)
+                );
+
+                if (piece) {
+                    movePiece(piece, direction);
+                }
+            }
+            moveCount = 0;
+            updateMoveCount();
+        }
+
+        function loadImage(file) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = URL.createObjectURL(file);
+            });
+        }
+
+        document.getElementById('imageInput').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                try {
+                    const img = await loadImage(file);
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Calculate the size to maintain aspect ratio
+                    let width = img.width;
+                    let height = img.height;
+                    const maxSize = 900;
+                    
+                    if (width > maxSize || height > maxSize) {
+                        const ratio = Math.min(maxSize / width, maxSize / height);
+                        width *= ratio;
+                        height *= ratio;
+                    }
+                    
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    currentImage = canvas.toDataURL('image/jpeg', 0.8);
+                    createPuzzle();
+                    shufflePuzzle();
+                } catch (error) {
+                    alert('Error loading image. Please try another image.');
+                }
+            }
+        });
+
+        // Initialize with default state
+        createPuzzle();
+    </script>
+</body>
+</html>

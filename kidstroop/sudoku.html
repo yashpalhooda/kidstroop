@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kids Sudoku</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .sudoku-cell {
+            width: 60px;
+            height: 60px;
+            border: 2px solid #ddd;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            cursor: pointer;
+            background: white;
+            transition: all 0.3s;
+        }
+        
+        .sudoku-cell:hover {
+            background: #f0f0f0;
+        }
+        
+        .sudoku-cell.highlight {
+            background: #e6f3ff;
+        }
+        
+        .sudoku-cell.fixed {
+            background: #f8f9fa;
+            cursor: not-allowed;
+            color: #2c3e50;
+            font-weight: bold;
+        }
+        
+        .sudoku-cell.error {
+            background: #ffe6e6;
+        }
+        
+        .sudoku-block {
+            border: 3px solid #333;
+        }
+        
+        .number-pad button {
+            width: 50px;
+            height: 50px;
+            margin: 5px;
+            font-size: 20px;
+        }
+
+        @media (max-width: 576px) {
+            .sudoku-cell {
+                width: 40px;
+                height: 40px;
+                font-size: 18px;
+            }
+            
+            .number-pad button {
+                width: 40px;
+                height: 40px;
+                font-size: 16px;
+                margin: 3px;
+            }
+        }
+
+        .success-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.2);
+            display: none;
+            z-index: 1000;
+            animation: pop 0.5s;
+        }
+
+        @keyframes pop {
+            0% { transform: translate(-50%, -50%) scale(0); }
+            70% { transform: translate(-50%, -50%) scale(1.1); }
+            100% { transform: translate(-50%, -50%) scale(1); }
+        }
+
+        .celebration {
+            font-size: 40px;
+            animation: bounce 0.5s infinite alternate;
+        }
+
+        @keyframes bounce {
+            from { transform: scale(1); }
+            to { transform: scale(1.2); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container py-4">
+        <div class="text-center mb-4">
+            <h1 class="display-4 mb-3">🎮 Kids Sudoku 🎲</h1>
+            <div class="mb-3">
+                <button class="btn btn-primary me-2" onclick="startNewGame()">New Game</button>
+                <button class="btn btn-info me-2" onclick="checkProgress()">Check Progress</button>
+                <select class="btn btn-secondary" id="difficultySelect" onchange="startNewGame()">
+                    <option value="easy">Easy</option>
+                    <option value="medium">Medium</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="row justify-content-center">
+            <div class="col-12 col-md-auto mb-4">
+                <div id="sudokuGrid" class="d-flex flex-column align-items-center"></div>
+            </div>
+            
+            <div class="col-12 col-md-auto">
+                <div class="number-pad text-center">
+                    <div class="mb-2">
+                        <button class="btn btn-outline-primary" onclick="setNumber(1)">1</button>
+                        <button class="btn btn-outline-primary" onclick="setNumber(2)">2</button>
+                        <button class="btn btn-outline-primary" onclick="setNumber(3)">3</button>
+                        <button class="btn btn-outline-primary" onclick="setNumber(4)">4</button>
+                    </div>
+                    <button class="btn btn-outline-danger" onclick="setNumber(0)">Clear</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="success-message text-center" id="successMessage">
+        <div class="celebration">🎉</div>
+        <h2 class="text-success">Congratulations!</h2>
+        <p>You solved the puzzle!</p>
+        <button class="btn btn-primary" onclick="startNewGame()">Play Again</button>
+    </div>
+
+    <script>
+        let selectedCell = null;
+        let puzzle = [];
+        let solution = [];
+        let fixedCells = new Set();
+
+        function generatePuzzle(difficulty) {
+            // Base solution
+            solution = [
+                [1, 2, 3, 4],
+                [3, 4, 1, 2],
+                [2, 1, 4, 3],
+                [4, 3, 2, 1]
+            ];
+
+            // Shuffle the solution
+            for (let i = 0; i < 10; i++) {
+                if (Math.random() < 0.5) {
+                    // Swap rows within blocks
+                    const block = Math.floor(Math.random() * 2);
+                    const row1 = block * 2 + Math.floor(Math.random() * 2);
+                    const row2 = block * 2 + Math.floor(Math.random() * 2);
+                    [solution[row1], solution[row2]] = [solution[row2], solution[row1]];
+                } else {
+                    // Swap columns within blocks
+                    const block = Math.floor(Math.random() * 2);
+                    const col1 = block * 2 + Math.floor(Math.random() * 2);
+                    const col2 = block * 2 + Math.floor(Math.random() * 2);
+                    for (let row = 0; row < 4; row++) {
+                        [solution[row][col1], solution[row][col2]] = 
+                        [solution[row][col2], solution[row][col1]];
+                    }
+                }
+            }
+
+            // Create puzzle by removing numbers
+            puzzle = solution.map(row => [...row]);
+            fixedCells.clear();
+
+            const cellsToRemove = difficulty === 'easy' ? 8 : 10;
+            let removed = 0;
+
+            while (removed < cellsToRemove) {
+                const row = Math.floor(Math.random() * 4);
+                const col = Math.floor(Math.random() * 4);
+                if (puzzle[row][col] !== 0) {
+                    puzzle[row][col] = 0;
+                    removed++;
+                }
+            }
+
+            // Mark fixed cells
+            for (let row = 0; row < 4; row++) {
+                for (let col = 0; col < 4; col++) {
+                    if (puzzle[row][col] !== 0) {
+                        fixedCells.add(`${row}-${col}`);
+                    }
+                }
+            }
+        }
+
+        function createGrid() {
+            const grid = document.getElementById('sudokuGrid');
+            grid.innerHTML = '';
+
+            for (let row = 0; row < 4; row++) {
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'd-flex';
+
+                for (let col = 0; col < 4; col++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'sudoku-cell';
+                    if (row < 2 && col < 2 || row >= 2 && col >= 2) {
+                        cell.classList.add('sudoku-block');
+                    }
+                    
+                    if (puzzle[row][col] !== 0) {
+                        cell.textContent = puzzle[row][col];
+                        cell.classList.add('fixed');
+                    }
+                    
+                    cell.dataset.row = row;
+                    cell.dataset.col = col;
+                    
+                    cell.addEventListener('click', () => selectCell(cell));
+                    rowDiv.appendChild(cell);
+                }
+                
+                grid.appendChild(rowDiv);
+            }
+        }
+
+        function selectCell(cell) {
+            if (fixedCells.has(`${cell.dataset.row}-${cell.dataset.col}`)) return;
+            
+            if (selectedCell) {
+                selectedCell.classList.remove('highlight');
+            }
+            
+            selectedCell = cell;
+            cell.classList.add('highlight');
+        }
+
+        function setNumber(num) {
+            if (!selectedCell) return;
+            
+            const row = parseInt(selectedCell.dataset.row);
+            const col = parseInt(selectedCell.dataset.col);
+            
+            if (fixedCells.has(`${row}-${col}`)) return;
+            
+            puzzle[row][col] = num;
+            selectedCell.textContent = num || '';
+            selectedCell.classList.remove('error');
+            
+            checkWin();
+        }
+
+        function checkProgress() {
+            const cells = document.querySelectorAll('.sudoku-cell');
+            cells.forEach(cell => {
+                const row = parseInt(cell.dataset.row);
+                const col = parseInt(cell.dataset.col);
+                
+                if (puzzle[row][col] !== 0 && puzzle[row][col] !== solution[row][col]) {
+                    cell.classList.add('error');
+                }
+            });
+        }
+
+        function checkWin() {
+            for (let row = 0; row < 4; row++) {
+                for (let col = 0; col < 4; col++) {
+                    if (puzzle[row][col] !== solution[row][col]) {
+                        return;
+                    }
+                }
+            }
+            
+            document.getElementById('successMessage').style.display = 'block';
+        }
+
+        function startNewGame() {
+            const difficulty = document.getElementById('difficultySelect').value;
+            generatePuzzle(difficulty);
+            createGrid();
+            document.getElementById('successMessage').style.display = 'none';
+        }
+
+        // Initialize the game
+        startNewGame();
+    </script>
+</body>
+</html>
